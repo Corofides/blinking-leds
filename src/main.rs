@@ -24,7 +24,6 @@ fn main() -> ! {
         avr_device::interrupt::enable();
     }
     let mut overflow_count: u32 = 0;
-    let mut is_on = false;
 
     let dp = atmega328p::Peripherals::take().unwrap();
 
@@ -65,17 +64,9 @@ fn main() -> ! {
 
         // Each overflow counts as 256 ticks.
         if (overflow_count * 256) >= cycles_per_second {
-
             overflow_count = 0;
-            dp.PORTB.portb.write(|w| w.pb5().set_bit());
-
-            if is_on {
-                dp.PORTB.portb.write(|w| w.pb5().clear_bit());
-            } else {
-                dp.PORTB.portb.write(|w| w.pb5().set_bit());
-            }
-
-            is_on = !is_on;
+            // Write to pinb which alternates the pin high / low
+            dp.PORTB.pinb.write(|w| w.pb5().set_bit());
         }
                 
     }
