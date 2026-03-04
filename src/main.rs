@@ -1,55 +1,72 @@
 #![no_std]
 #![no_main]
+#![feature(abi_avr_interrupt)]
 
 use panic_halt as _;
 use avr_device::atmega328p;
+use avr_device::interrupt::{self, Mutex};
+use core::cell::RefCell;
+
+static TIMER_OVERFLOWED: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+
+#[avr_device::interrupt(atmega328p)]
+fn TIMER0_OVF() {
+    interrupt::free(|cs| {
+        TIMER_OVERFLOWED.borrow(cs).replace(true);
+    });
+}
 
 #[avr_device::entry]
 fn main() -> ! {
-    let mut number: i32 = 0;
 
+    // Enable interrupts.
+    unsafe {
+        avr_device::interrupt::enable();
+    }
+    let mut overflow_count: u32 = 0;
     let mut is_on = false;
 
     let dp = atmega328p::Peripherals::take().unwrap();
 
-    // let timer: *mut u8 = 0x46 as *mut u8;
-
-    let mut last_timer_value: u8 = 0;
-    let mut total_timer_value: u32 = 0;
-
     let cycles_per_second: u32 =  (16000000.0 / 1024.0) as u32;
 
+    // Set up the prescaler.
     dp.TC0.tccr0b.write(|w| {
         w.cs0().prescale_1024()
     });
 
+    // Enable the overflow interrupt.
+    dp.TC0.timsk0.write(|w| {
+        w.toie0().set_bit()
+    });
+
+    // Allow us to use GPIO13 as output.
     dp.PORTB.ddrb.write(|w| w.pb5().set_bit());
-    //dp.PORTB.portb.write(|w| w.pb5().set_bit());
 
     loop {
-        
-        let current_timer = dp.TC0.tcnt0.read().bits();
-        let delta: u32;
 
-        if current_timer < last_timer_value {
-            let last_timer_value: u32 = last_timer_value as u32;
-            let mut current_timer: u32 = current_timer as u32;
-            
-            current_timer = current_timer + 256;
+        // Check if we've overflowed.
+        let timer_overflowed = interrupt::free(|cs| {
+            let mut value = TIMER_OVERFLOWED.borrow(cs).borrow_mut();
 
-            delta = current_timer - last_timer_value
+            if *value {
+                *value = false;
+                true
+            } else {
+                false
+            }
 
-        } else {
-            delta = (current_timer - last_timer_value) as u32;
+        });
+
+        // If we've overflowed add 1 to our time count.
+        if timer_overflowed {
+            overflow_count = overflow_count.wrapping_add(1);
         }
 
-        total_timer_value = total_timer_value.wrapping_add(delta);
-        last_timer_value = current_timer;
+        // Each overflow counts as 256 ticks.
+        if (overflow_count * 256) >= cycles_per_second {
 
-        number = number.wrapping_add(1);
-        
-        if total_timer_value > cycles_per_second {
-
+            overflow_count = 0;
             dp.PORTB.portb.write(|w| w.pb5().set_bit());
 
             if is_on {
@@ -58,9 +75,8 @@ fn main() -> ! {
                 dp.PORTB.portb.write(|w| w.pb5().set_bit());
             }
 
-            total_timer_value = total_timer_value.saturating_sub(cycles_per_second);
             is_on = !is_on;
         }
-        
+                
     }
 }
