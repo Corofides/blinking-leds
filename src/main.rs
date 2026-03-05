@@ -8,7 +8,7 @@ use avr_device::interrupt::{self, Mutex};
 use core::cell::RefCell;
 
 static TIMER_OVERFLOWED: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
-//static TOGGLE_LED: Mutex<Fn<(), Output = ()>>;
+static LED_13: Mutex<RefCell<Option<LED>>> = Mutex::new(RefCell::new(None));
 
 #[avr_device::interrupt(atmega328p)]
 fn TIMER0_OVF() {
@@ -57,11 +57,9 @@ fn main() -> ! {
         port: dp.PORTB,
     };
 
-    /*let toggle_led = {
-        || {
-            led13.port.pinb.write(|w| w.pb5().set_bit());
-        }
-    };*/
+    interrupt::free(move |cs| { 
+        LED_13.borrow(cs).replace(Some(led13));
+    });
 
     loop {
 
@@ -86,7 +84,19 @@ fn main() -> ! {
         // Each overflow counts as 256 ticks.
         if (overflow_count * 256) >= cycles_per_second {
             overflow_count = 0;
-            led13.toggle_led();
+
+            interrupt::free(|cs| {
+
+                let mut led_option = LED_13.borrow(cs).borrow_mut();
+
+                // .as_mut is important as we don't want to take ownership of the
+                // value, just get a reference to it.
+                if let Some(led) = led_option.as_mut() {
+                    led.toggle_led();
+                }
+
+            });
+
         }
                 
     }
