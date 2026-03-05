@@ -42,6 +42,12 @@ fn main() -> ! {
     // Allow us to use GPIO13 as output.
     dp.PORTB.ddrb.write(|w| w.pb5().set_bit());
 
+    let toggle_led = {
+        || {
+            dp.PORTB.pinb.write(|w| w.pb5().set_bit());
+        }
+    };
+
     loop {
 
         // Check if we've overflowed.
@@ -65,8 +71,7 @@ fn main() -> ! {
         // Each overflow counts as 256 ticks.
         if (overflow_count * 256) >= cycles_per_second {
             overflow_count = 0;
-            // Write to pinb which alternates the pin high / low
-            dp.PORTB.pinb.write(|w| w.pb5().set_bit());
+            toggle_led();
         }
                 
     }
