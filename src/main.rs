@@ -12,26 +12,22 @@ static LED_13: Mutex<RefCell<Option<LED>>> = Mutex::new(RefCell::new(None));
 
 #[avr_device::interrupt(atmega328p)]
 fn TIMER0_OVF() {
+    
+    let cs = unsafe { interrupt::CriticalSection::new() };
+
     let cycles_per_second: u8 = 61; // 16Mhz / (1024 * 256) Rounded down as it's closer.
    
-    let overflow_count = interrupt::free(|cs| {
-        let mut overflow_count = OVERFLOW_COUNT.borrow(cs).borrow_mut();
-        *overflow_count = overflow_count.wrapping_add(1);
-        *overflow_count
-    });
+    let mut overflow_count = OVERFLOW_COUNT.borrow(cs).borrow_mut();
+    *overflow_count = overflow_count.wrapping_add(1);
 
-    if overflow_count >= cycles_per_second {
+    if *overflow_count >= cycles_per_second {
+        *overflow_count = 0;
 
-        interrupt::free(|cs| {
+        let mut led_option = LED_13.borrow(cs).borrow_mut();
 
-            OVERFLOW_COUNT.borrow(cs).replace(0);
-
-            let mut led_option = LED_13.borrow(cs).borrow_mut();
-
-            if let Some(led) = led_option.as_mut() {
-                led.toggle_led();
-            }
-        });
+        if let Some(led) = led_option.as_mut() {
+            led.toggle_led();
+        }
 
     }
     
@@ -73,10 +69,14 @@ fn main() -> ! {
         LED_13.borrow(cs).replace(Some(led13));
     });
 
+    // Enable interrupts.
     unsafe {
         avr_device::interrupt::enable();
     }
 
-    // Enable interrupts.
     loop { /* Do Nothing */ }
 }
+
+
+
+
